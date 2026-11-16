@@ -7,17 +7,37 @@ import base64
 import time
 
 # ==========================================
-# 1. СПИСОК ПРИЧЕСОК
+# 1. БОЛЬШОЙ КАТАЛОГ ПРИЧЕСОК
 # ==========================================
 HAIRSTYLES = {
+    # --- Женские стрижки и укладки ---
     "Боб-каре (Короткое)": "a classic short bob haircut with straight bangs, sleek and shiny",
-    "Длинные волны": "long flowing wavy hair, voluminous and romantic style",
+    "Удлиненный боб (Lob)": "a long bob (lob) haircut, collarbone length, soft waves",
+    "Каскад": "a cascading layered haircut, long layers, voluminous",
     "Пикси (Очень короткая)": "a trendy pixie cut, very short, textured and edgy",
-    "Короткая стрижка (Кроп)": "a short textured crop haircut, modern and masculine style",
-    "Стрижка с выбритыми висками": "a cool haircut with shaved sides and long hair on top (undercut)",
+    "Длинные волны": "long flowing wavy hair, voluminous and romantic style",
     "Кудри": "natural curly hair, defined and bouncy curls",
-    "Красный цвет": "vibrant red hair color, dyed and glossy",
-    "Блонд (Обесцвечивание)": "platinum blonde bleached hair, icy tone"
+    "Высокий хвост": "sleek high ponytail, smooth and elegant",
+    "Пучок (Bun)": "a neat top knot bun, elegant and modern",
+    "Челка-шторка": "long curtain bangs, parted in the middle",
+    "Прямой пробор": "perfectly straight hair with a middle part",
+    
+    # --- Мужские стрижки ---
+    "Кроп (Текстурированный)": "a short textured crop haircut, modern and masculine style",
+    "Фейд (Fade)": "a low skin fade, clean and sharp",
+    "Помпадур": "a classic pompadour haircut, slicked back with volume on top",
+    "Квифф": "a textured quiff haircut, modern and stylish",
+    "Андеркат (Выбритые виски)": "a cool haircut with shaved sides and long hair on top (undercut)",
+    "Мужской пучок (Man Bun)": "a stylish man bun, long hair tied at the back",
+    "Ирокез": "a faux hawk mohawk, edgy and modern",
+    
+    # --- Цвета и окрашивание ---
+    "Блонд (Обесцвечивание)": "platinum blonde bleached hair, icy tone",
+    "Пепельный блонд": "ash blonde hair color, cool and sophisticated",
+    "Красный (Рыжий)": "vibrant copper red hair, rich and glossy",
+    "Розовые кончики": "pink dyed hair tips, trendy and fun",
+    "Синий цвет": "vibrant blue dyed hair, bold and striking",
+    "Камуфляж седины": "natural gray coverage, subtle and blended hair color"
 }
 
 SYSTEM_PROMPT_TEXT = """You are an expert photo editor. Generate an image based on the provided photo. 
@@ -39,6 +59,7 @@ def change_hair(photo, selected_style, custom_style):
         if not account_id or not api_token:
             return None, "❌ Ошибка конфигурации сервера"
 
+        # Сжимаем фото
         def resize_image(img):
             img.thumbnail((512, 512), Image.Resampling.LANCZOS)
             buffered = io.BytesIO()
@@ -94,8 +115,6 @@ def change_hair(photo, selected_style, custom_style):
 # ==========================================
 # 3. ДИЗАЙН И ИНТЕРФЕЙС
 # ==========================================
-
-# Кастомный CSS для улучшения внешнего вида (скругления, тени, отступы)
 custom_css = """
 .gradio-container {
     max-width: 1000px !important;
@@ -121,7 +140,6 @@ custom_css = """
 }
 """
 
-# Применяем светлую тему (Soft)
 theme = gr.themes.Soft(
     primary_hue="rose",
     secondary_hue="teal",
@@ -131,7 +149,6 @@ theme = gr.themes.Soft(
 
 with gr.Blocks(title="AI Подбор Прически", theme=theme, css=custom_css) as demo:
     
-    # Красивый заголовок
     with gr.Column(elem_id="header-text"):
         gr.HTML("""
             <h1>💇‍♀️ AI Стилист</h1>
@@ -139,16 +156,17 @@ with gr.Blocks(title="AI Подбор Прически", theme=theme, css=custom
         """)
     
     with gr.Row():
-        # Левая колонка - ввод
         with gr.Column(scale=1):
             photo_input = gr.Image(type="pil", label="Ваше фото", elem_classes="photo-box")
             
             gr.Markdown("### Выберите образ")
             
+            # Теперь здесь 23 стиля!
             style_dropdown = gr.Dropdown(
                 choices=list(HAIRSTYLES.keys()), 
-                label="Готовые стили", 
-                value="Боб-каре (Короткое)"
+                label="Готовые стили (можно листать)", 
+                value="Боб-каре (Короткое)",
+                info="Выберите вариант из списка или напишите свой ниже"
             )
             
             custom_input = gr.Textbox(
@@ -158,7 +176,6 @@ with gr.Blocks(title="AI Подбор Прически", theme=theme, css=custom
             
             btn = gr.Button("✨ Сгенерировать", variant="primary", size="lg")
             
-        # Правая колонка - вывод
         with gr.Column(scale=1):
             output_image = gr.Image(label="Результат", interactive=False)
             output_text = gr.Textbox(label="Статус", interactive=False)
