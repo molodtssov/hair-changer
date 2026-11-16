@@ -9,22 +9,13 @@ import time
 # ==========================================
 # 1. КАТАЛОГ ПРИЧЕСОК (Визуальная галерея)
 # ==========================================
+# Стабильные картинки с Pexels (можно заменить на свои)
 HAIRSTYLE_GALLERY = [
-    ("Боб-каре", "https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?q=80&w=400&auto=format&fit=crop", "a classic short bob haircut with straight bangs, sleek and shiny"),
-    ("Кудри", "https://images.unsplash.com/photo-1580618672591-eb180b1a973f?q=80&w=400&auto=format&fit=crop", "natural curly hair, defined and bouncy curls"),
-    ("Блонд", "https://images.unsplash.com/photo-1522337660859-02fbefca4702?q=80&w=400&auto=format&fit=crop", "platinum blonde bleached hair, icy tone"),
-    ("Андеркат", "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?q=80&w=400&auto=format&fit=crop", "a cool haircut with shaved sides and long hair on top (undercut)")
+    ("Боб-каре", "https://images.pexels.com/photos/3993449/pexels-photo-3993449.jpeg?auto=compress&cs=tinysrgb&w=600", "a classic short bob haircut with straight bangs, sleek and shiny"),
+    ("Кудри", "https://images.pexels.com/photos/3993398/pexels-photo-3993398.jpeg?auto=compress&cs=tinysrgb&w=600", "natural curly hair, defined and bouncy curls"),
+    ("Блонд", "https://images.pexels.com/photos/3993467/pexels-photo-3993467.jpeg?auto=compress&cs=tinysrgb&w=600", "platinum blonde bleached hair, icy tone"),
+    ("Андеркат", "https://images.pexels.com/photos/1319460/pexels-photo-1319460.jpeg?auto=compress&cs=tinysrgb&w=600", "a cool haircut with shaved sides and long hair on top (undercut)")
 ]
-
-HAIRSTYLES_TEXT = {
-    "Боб-каре": "a classic short bob haircut with straight bangs, sleek and shiny",
-    "Длинные волны": "long flowing wavy hair, voluminous and romantic style",
-    "Пикси": "a trendy pixie cut, very short, textured and edgy",
-    "Кроп": "a short textured crop haircut, modern and masculine style",
-    "Кудри": "natural curly hair, defined and bouncy curls",
-    "Красный цвет": "vibrant red hair color, dyed and glossy",
-    "Блонд": "platinum blonde bleached hair, icy tone"
-}
 
 SYSTEM_PROMPT_TEXT = """You are an expert photo editor. Generate an image based on the provided photo. 
 Change ONLY the hairstyle. Keep the face, skin tone, expression, clothes, pose, background and lighting exactly the same. 
@@ -43,7 +34,7 @@ def process_generation(photo, prompt_text, style_name_display):
         api_token = os.getenv("CF_API_TOKEN")
         
         if not account_id or not api_token:
-            return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
+            return None, "❌ Ошибка конфигурации сервера"
 
         def resize_image(img):
             img.thumbnail((512, 512), Image.Resampling.LANCZOS)
@@ -81,13 +72,12 @@ def process_generation(photo, prompt_text, style_name_display):
             else:
                 break
 
-        return None, "⚠️ Сервер Cloudflare перегружен. Нажмите еще раз через пару секунд."
+        return None, "⚠️ Сервер Cloudflare перегружен. Нажмите еще раз."
 
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
 
-# --- Функции-обертки для вкладок ---
-
+# --- Функции-обертки ---
 def process_from_gallery(photo, style_name):
     if not style_name: return None, "Выберите прическу"
     eng_prompt = next((item[2] for item in HAIRSTYLE_GALLERY if item[0] == style_name), "a modern haircut")
@@ -99,31 +89,19 @@ def process_from_text(photo, custom_text):
     prompt = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_text)
     return process_generation(photo, prompt, "Ваш текстовый запрос")
 
-def process_from_ref(photo, ref_photo):
-    if not photo or not ref_photo: return None, "Загрузите оба фото"
-    # (Упрощенная логика для референса, объединенная в общий промпт)
-    prompt = "Change the hairstyle of the person in the first image to match the hairstyle in the second image. Keep the face, clothes, pose, and background from the first image exactly the same."
-    # В реальности тут нужна отправка двух файлов, но для простоты интерфейса
-    # мы можем попросить пользователя использовать текстовый режим или галерею, 
-    # так как двухфотонный режим жрет много нейронов.
-    # Но если хочешь, я могу написать отдельный вызов API для 2-х фото.
-    return None, "Режим с двумя фото временно отключен для экономии лимитов. Используйте текст или галерею."
-
 # ==========================================
-# 3. ИНТЕРФЕЙС GRADIO (С ВКЛАДКАМИ)
+# 3. ИНТЕРФЕЙС GRADIO
 # ==========================================
 with gr.Blocks(title="AI Подбор Прически") as demo:
     gr.Markdown("# 💇‍♀️ AI Подбор Прически")
     
     with gr.Row():
-        # Левая колонка - фото пользователя
         with gr.Column(scale=1):
             photo_input = gr.Image(type="pil", label="1. Загрузите ваше фото")
             
-        # Правая колонка - вкладки с выбором стиля
         with gr.Column(scale=1):
             with gr.Tabs():
-                with gr.Tab("🎨 Каталог (Sims-style)"):
+                with gr.Tab("🎨 Каталог"):
                     gallery_data = [[item[1], item[0]] for item in HAIRSTYLE_GALLERY]
                     style_gallery = gr.Gallery(
                         value=gallery_data, label="Кликните на прическу, чтобы примерить", 
@@ -134,28 +112,22 @@ with gr.Blocks(title="AI Подбор Прически") as demo:
                 with gr.Tab("✍️ Свой текст"):
                     custom_input = gr.Textbox(label="Опишите прическу", placeholder="Например: короткая стрижка с синими кончиками")
                     btn_text = gr.Button("✨ Сгенерировать по тексту", variant="primary")
-                    
-                with gr.Tab("🖼 Фото-референс"):
-                    gr.Markdown("*Функция временно недоступна для экономии лимитов. Используйте вкладки 'Каталог' или 'Свой текст'*")
 
     with gr.Row():
         output_image = gr.Image(label="Результат")
         output_text = gr.Textbox(label="Статус")
 
-    # Обработчики кнопок
     def on_gallery_select(evt: gr.SelectData):
-        return evt.value[1] # Возвращаем название прически
+        return evt.value[1] 
 
     style_gallery.select(on_gallery_select, None, selected_gallery_style)
     
-    # Автозапуск при клике на галерею
     selected_gallery_style.change(
         fn=process_from_gallery, 
         inputs=[photo_input, selected_gallery_style], 
         outputs=[output_image, output_text]
     )
     
-    # Запуск по кнопке для текста
     btn_text.click(
         fn=process_from_text,
         inputs=[photo_input, custom_input],
