@@ -45,11 +45,9 @@ def change_hair(photo, selected_style, custom_style):
         photo.save(buffered, format="JPEG")
         image_bytes = buffered.getvalue()
 
-        # Используем новую модель FLUX.2 [klein] 9B
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
         headers = {"Authorization": f"Bearer {api_token}"}
         
-        # Эта модель ожидает multipart/form-data
         files = {
             "input_image_0": ("input.jpg", image_bytes, "image/jpeg")
         }
@@ -57,21 +55,27 @@ def change_hair(photo, selected_style, custom_style):
         
         response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
         
-        # Если ответ не 200, показываем детали ошибки от Cloudflare
         if response.status_code != 200:
             error_detail = response.text
             return None, f"❌ Ошибка Cloudflare ({response.status_code}): {error_detail}"
 
-        # Cloudflare возвращает JSON с ссылкой на изображение
         response_json = response.json()
         if not response_json.get("success"):
             return None, f"❌ Ошибка Cloudflare: {response_json.get('errors')}"
             
-        image_url = response_json["result"]["image"]
+        image_result = response_json["result"]["image"]
         
-        # Скачиваем готовое изображение по ссылке
-        img_response = requests.get(image_url, timeout=30)
-        result_image = Image.open(io.BytesIO(img_response.content))
+        # Проверяем, что нам вернули: ссылку (http...) или base64
+        if image_result.startswith("http"):
+            # Если это ссылка — скачиваем
+            img_response = requests.get(image_result, timeout=30)
+            result_image = Image.open(io.BytesIO(img_response.content))
+        else:
+            # Если это base64 (начинается с /9j/ или data:image)
+            if image_result.startswith("data:image"):
+                image_result = image_result.split(",")[1]
+            image_bytes = base64.b64decode(image_result)
+            result_image = Image.open(io.BytesIO(image_bytes))
         
         return result_image, "✅ Готово! Ваша новая прическа (FLUX.2)."
 
