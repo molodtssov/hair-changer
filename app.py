@@ -40,34 +40,41 @@ def change_hair(photo, selected_style, custom_style):
         else:
             return None, "❌ Ошибка: Выберите прическу или напишите свой вариант"
 
-        # Конвертируем фото в base64
+        # Конвертируем фото в байты
         buffered = io.BytesIO()
         photo.save(buffered, format="JPEG")
-        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        image_bytes = buffered.getvalue()
 
-        # Формируем JSON-запрос
-        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img"
-        headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "prompt": prompt_text,
-            "image_b64": img_b64,
-            "num_steps": 20  # Количество шагов генерации (можно менять)
-        }
+        # Используем новую модель FLUX.2 [klein] 9B
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
+        headers = {"Authorization": f"Bearer {api_token}"}
         
-        response = requests.post(url, headers=headers, json=data, timeout=120)
-        response.raise_for_status()
+        # Эта модель ожидает multipart/form-data
+        files = {
+            "input_image_0": ("input.jpg", image_bytes, "image/jpeg")
+        }
+        data = {"prompt": prompt_text}
+        
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
+        
+        # Если ответ не 200, показываем детали ошибки от Cloudflare
+        if response.status_code != 200:
+            error_detail = response.text
+            return None, f"❌ Ошибка Cloudflare ({response.status_code}): {error_detail}"
 
-        # Cloudflare возвращает бинарные данные изображения
-        result_image = Image.open(io.BytesIO(response.content))
-        return result_image, "✅ Готово! Ваша новая прическа (Cloudflare)."
+        # Cloudflare возвращает JSON с ссылкой на изображение
+        response_json = response.json()
+        if not response_json.get("success"):
+            return None, f"❌ Ошибка Cloudflare: {response_json.get('errors')}"
+            
+        image_url = response_json["result"]["image"]
+        
+        # Скачиваем готовое изображение по ссылке
+        img_response = requests.get(image_url, timeout=30)
+        result_image = Image.open(io.BytesIO(img_response.content))
+        
+        return result_image, "✅ Готово! Ваша новая прическа (FLUX.2)."
 
-    except requests.exceptions.HTTPError as http_err:
-        # Показываем детали ошибки от Cloudflare
-        error_detail = http_err.response.text if http_err.response is not None else str(http_err)
-        return None, f"❌ Ошибка Cloudflare: {error_detail}"
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
         
