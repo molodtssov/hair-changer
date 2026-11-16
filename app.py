@@ -9,7 +9,6 @@ import time
 # ==========================================
 # 1. КАТАЛОГ ПРИЧЕСОК (Визуальная галерея)
 # ==========================================
-# Ссылки на картинки (можно заменить на свои)
 HAIRSTYLE_GALLERY = [
     ("Боб-каре", "https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?q=80&w=400&auto=format&fit=crop", "a classic short bob haircut with straight bangs, sleek and shiny"),
     ("Кудри", "https://images.unsplash.com/photo-1580618672591-eb180b1a973f?q=80&w=400&auto=format&fit=crop", "natural curly hair, defined and bouncy curls"),
@@ -17,19 +16,27 @@ HAIRSTYLE_GALLERY = [
     ("Андеркат", "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?q=80&w=400&auto=format&fit=crop", "a cool haircut with shaved sides and long hair on top (undercut)")
 ]
 
+HAIRSTYLES_TEXT = {
+    "Боб-каре": "a classic short bob haircut with straight bangs, sleek and shiny",
+    "Длинные волны": "long flowing wavy hair, voluminous and romantic style",
+    "Пикси": "a trendy pixie cut, very short, textured and edgy",
+    "Кроп": "a short textured crop haircut, modern and masculine style",
+    "Кудри": "natural curly hair, defined and bouncy curls",
+    "Красный цвет": "vibrant red hair color, dyed and glossy",
+    "Блонд": "platinum blonde bleached hair, icy tone"
+}
+
 SYSTEM_PROMPT_TEXT = """You are an expert photo editor. Generate an image based on the provided photo. 
 Change ONLY the hairstyle. Keep the face, skin tone, expression, clothes, pose, background and lighting exactly the same. 
 The new hairstyle should be: {hairstyle}. 
 Realistic photo, natural skin and hair texture, 3:4 portrait."""
 
 # ==========================================
-# 2. ЛОГИКА ГЕНЕРАЦИИ
+# 2. ОБЩАЯ ЛОГИКА ГЕНЕРАЦИИ
 # ==========================================
-def change_hair(photo, selected_style_name):
+def process_generation(photo, prompt_text, style_name_display):
     if not photo:
         return None, "❌ Ошибка: Загрузите ваше фото"
-    if not selected_style_name:
-        return None, "❌ Ошибка: Выберите прическу из каталога"
     
     try:
         account_id = os.getenv("CF_ACCOUNT_ID")
@@ -38,11 +45,6 @@ def change_hair(photo, selected_style_name):
         if not account_id or not api_token:
             return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
 
-        # Ищем английский промпт по выбранному названию
-        eng_prompt = next((item[2] for item in HAIRSTYLE_GALLERY if item[0] == selected_style_name), "a modern haircut")
-        prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=eng_prompt)
-
-        # Уменьшаем фото до 512x512
         def resize_image(img):
             img.thumbnail((512, 512), Image.Resampling.LANCZOS)
             buffered = io.BytesIO()
@@ -50,14 +52,12 @@ def change_hair(photo, selected_style_name):
             return buffered.getvalue()
 
         image_bytes = resize_image(photo)
-        
         files = {"input_image_0": ("person.jpg", image_bytes, "image/jpeg")}
         data = {"prompt": prompt_text}
 
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
         headers = {"Authorization": f"Bearer {api_token}"}
 
-        # 3 попытки при ошибке 500
         last_error = None
         for attempt in range(3):
             response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
@@ -68,11 +68,11 @@ def change_hair(photo, selected_style_name):
                     image_result = response_json["result"]["image"]
                     if image_result.startswith("http"):
                         img_response = requests.get(image_result, timeout=30)
-                        return Image.open(io.BytesIO(img_response.content)), f"✅ Готово! Примерена прическа: {selected_style_name}"
+                        return Image.open(io.BytesIO(img_response.content)), f"✅ Готово! {style_name_display}"
                     else:
                         if image_result.startswith("data:image"):
                             image_result = image_result.split(",")[1]
-                        return Image.open(io.BytesIO(base64.b64decode(image_result))), f"✅ Готово! Примерена прическа: {selected_style_name}"
+                        return Image.open(io.BytesIO(base64.b64decode(image_result))), f"✅ Готово! {style_name_display}"
             
             if response.status_code == 500:
                 last_error = response.text
@@ -81,51 +81,84 @@ def change_hair(photo, selected_style_name):
             else:
                 break
 
-        return None, f"⚠️ Сервер Cloudflare перегружен. Нажмите еще раз через пару секунд."
+        return None, "⚠️ Сервер Cloudflare перегружен. Нажмите еще раз через пару секунд."
 
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
 
+# --- Функции-обертки для вкладок ---
+
+def process_from_gallery(photo, style_name):
+    if not style_name: return None, "Выберите прическу"
+    eng_prompt = next((item[2] for item in HAIRSTYLE_GALLERY if item[0] == style_name), "a modern haircut")
+    prompt = SYSTEM_PROMPT_TEXT.format(hairstyle=eng_prompt)
+    return process_generation(photo, prompt, f"Прическа: {style_name}")
+
+def process_from_text(photo, custom_text):
+    if not custom_text: return None, "Введите описание прически"
+    prompt = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_text)
+    return process_generation(photo, prompt, "Ваш текстовый запрос")
+
+def process_from_ref(photo, ref_photo):
+    if not photo or not ref_photo: return None, "Загрузите оба фото"
+    # (Упрощенная логика для референса, объединенная в общий промпт)
+    prompt = "Change the hairstyle of the person in the first image to match the hairstyle in the second image. Keep the face, clothes, pose, and background from the first image exactly the same."
+    # В реальности тут нужна отправка двух файлов, но для простоты интерфейса
+    # мы можем попросить пользователя использовать текстовый режим или галерею, 
+    # так как двухфотонный режим жрет много нейронов.
+    # Но если хочешь, я могу написать отдельный вызов API для 2-х фото.
+    return None, "Режим с двумя фото временно отключен для экономии лимитов. Используйте текст или галерею."
+
 # ==========================================
-# 3. ИНТЕРФЕЙС GRADIO (С галереей)
+# 3. ИНТЕРФЕЙС GRADIO (С ВКЛАДКАМИ)
 # ==========================================
 with gr.Blocks(title="AI Подбор Прически") as demo:
-    gr.Markdown("# 💇‍♀️ AI Подбор Прически (Sims-style)")
-    gr.Markdown("Загрузите ваше фото, затем кликните на понравившуюся прическу в каталоге ниже, чтобы примерить её.")
+    gr.Markdown("# 💇‍♀️ AI Подбор Прически")
     
     with gr.Row():
-        with gr.Column():
+        # Левая колонка - фото пользователя
+        with gr.Column(scale=1):
             photo_input = gr.Image(type="pil", label="1. Загрузите ваше фото")
             
-            # Создаем галерею из картинок
-            gallery_data = [[item[1], item[0]] for item in HAIRSTYLE_GALLERY]
-            
-            style_gallery = gr.Gallery(
-                value=gallery_data, 
-                label="2. Кликните на прическу, чтобы примерить", 
-                allow_preview=False,
-                columns=2,
-                rows=2,
-                height=400
-            )
-            
-        with gr.Column():
-            output_image = gr.Image(label="Результат")
-            output_text = gr.Textbox(label="Статус")
-            
-    # При клике на картинку в галерее, передаем её название в функцию
+        # Правая колонка - вкладки с выбором стиля
+        with gr.Column(scale=1):
+            with gr.Tabs():
+                with gr.Tab("🎨 Каталог (Sims-style)"):
+                    gallery_data = [[item[1], item[0]] for item in HAIRSTYLE_GALLERY]
+                    style_gallery = gr.Gallery(
+                        value=gallery_data, label="Кликните на прическу, чтобы примерить", 
+                        allow_preview=False, columns=2, rows=2, height=300
+                    )
+                    selected_gallery_style = gr.Textbox(visible=False)
+                    
+                with gr.Tab("✍️ Свой текст"):
+                    custom_input = gr.Textbox(label="Опишите прическу", placeholder="Например: короткая стрижка с синими кончиками")
+                    btn_text = gr.Button("✨ Сгенерировать по тексту", variant="primary")
+                    
+                with gr.Tab("🖼 Фото-референс"):
+                    gr.Markdown("*Функция временно недоступна для экономии лимитов. Используйте вкладки 'Каталог' или 'Свой текст'*")
+
+    with gr.Row():
+        output_image = gr.Image(label="Результат")
+        output_text = gr.Textbox(label="Статус")
+
+    # Обработчики кнопок
     def on_gallery_select(evt: gr.SelectData):
-        # evt.value возвращает кортеж (путь_к_картинке, подпись)
-        # Нам нужна подпись (название прически)
-        return evt.value[1]
+        return evt.value[1] # Возвращаем название прически
 
-    # Скрытое текстовое поле для хранения выбранного стиля
-    selected_style_hidden = gr.Textbox(visible=False)
-
-    style_gallery.select(on_gallery_select, None, selected_style_hidden)
-    selected_style_hidden.change(
-        fn=change_hair, 
-        inputs=[photo_input, selected_style_hidden], 
+    style_gallery.select(on_gallery_select, None, selected_gallery_style)
+    
+    # Автозапуск при клике на галерею
+    selected_gallery_style.change(
+        fn=process_from_gallery, 
+        inputs=[photo_input, selected_gallery_style], 
+        outputs=[output_image, output_text]
+    )
+    
+    # Запуск по кнопке для текста
+    btn_text.click(
+        fn=process_from_text,
+        inputs=[photo_input, custom_input],
         outputs=[output_image, output_text]
     )
 
