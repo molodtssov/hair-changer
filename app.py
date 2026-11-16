@@ -36,7 +36,7 @@ def change_hair(api_key, photo, selected_style, custom_style):
     
     try:
         # ВСТАВЬТЕ ВАШ URL ПРОКСИ ИЗ CLOUDFLARE!
-        proxy_url = "https://https://gemini-proxy.vv-molodec.workers.dev/" 
+        proxy_url = "https://https://gemini-proxy.vv-molodec.workers.dev" 
         
         # Создаем клиента через прокси
         client = genai.Client(
