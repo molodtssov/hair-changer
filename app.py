@@ -1,6 +1,7 @@
 import gradio as gr
 import os
 from google import genai
+from google.genai import types
 from PIL import Image
 import io
 import base64
@@ -19,7 +20,6 @@ HAIRSTYLES = {
     "Блонд (Обесцвечивание)": "platinum blonde bleached hair, icy tone"
 }
 
-# Системный промпт: строгое указание менять только волосы
 SYSTEM_PROMPT = """You are an expert photo editor. Generate an image based on the provided photo. 
 Change ONLY the hairstyle. Keep the face, skin tone, expression, clothes, pose, background and lighting exactly the same. 
 The new hairstyle should be: {hairstyle}. 
@@ -28,19 +28,20 @@ Realistic photo, natural skin and hair texture, 3:4 portrait."""
 # ==========================================
 # 2. ЛОГИКА ГЕНЕРАЦИИ
 # ==========================================
-def change_hair(api_key, photo, selected_style, custom_style):
-    if not api_key:
-        return None, "❌ Ошибка: Введите API-ключ Gemini"
+def change_hair(photo, selected_style, custom_style):
     if not photo:
         return None, "❌ Ошибка: Загрузите фото"
     
     try:
-        from google.genai import types
+        # Берем ключ из переменных окружения сервера (Render)
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return None, "❌ Ошибка конфигурации сервера: API-ключ не найден"
         
         # ВАШ URL ПРОКСИ ИЗ CLOUDFLARE
         proxy_url = "https://gemini-proxy.vv-molodec.workers.dev"
         
-        # Правильная передача базового URL для прокси в новом SDK
+        # Правильная передача базового URL для прокси
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(base_url=proxy_url)
@@ -63,7 +64,6 @@ def change_hair(api_key, photo, selected_style, custom_style):
             if part.inline_data:
                 image_bytes = part.inline_data.data
                 if isinstance(image_bytes, str):
-                    import base64
                     image_bytes = base64.b64decode(image_bytes)
                 result_image = Image.open(io.BytesIO(image_bytes))
                 return result_image, "✅ Готово! Ваша новая прическа."
@@ -81,14 +81,8 @@ with gr.Blocks(title="AI Подбор Прически") as demo:
     gr.Markdown("Загрузите фото и выберите желаемый образ. Вы можете выбрать готовый стиль или написать свой вариант на русском языке.")
     
     with gr.Row():
-        # Левая колонка (Ввод данных)
         with gr.Column():
-            api_key_input = gr.Textbox(
-                label="Google Gemini API Key", 
-                type="password",
-                placeholder="Вставьте ваш ключ от Google AI Studio"
-            )
-            
+            # Поле для ввода ключа УБРАНО
             photo_input = gr.Image(type="pil", label="Ваше фото")
             
             style_dropdown = gr.Dropdown(
@@ -104,18 +98,15 @@ with gr.Blocks(title="AI Подбор Прически") as demo:
             
             btn = gr.Button("✨ Сгенерировать", variant="primary")
             
-        # Правая колонка (Результат)
         with gr.Column():
             output_image = gr.Image(label="Результат")
             output_text = gr.Textbox(label="Статус")
             
-    # Привязка кнопки к функции
     btn.click(
         fn=change_hair, 
-        inputs=[api_key_input, photo_input, style_dropdown, custom_input], 
+        inputs=[photo_input, style_dropdown, custom_input], # Убрали api_key_input
         outputs=[output_image, output_text]
     )
 
-# Запуск приложения (ВАЖНО для Cloud Run)
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=8080)
