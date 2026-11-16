@@ -25,7 +25,6 @@ def change_hair(photo, selected_style, custom_style):
         return None, "❌ Ошибка: Загрузите фото"
     
     try:
-        # Берем данные Cloudflare из переменных окружения Render
         account_id = os.getenv("CF_ACCOUNT_ID")
         api_token = os.getenv("CF_API_TOKEN")
         
@@ -40,29 +39,37 @@ def change_hair(photo, selected_style, custom_style):
         else:
             return None, "❌ Ошибка: Выберите прическу или напишите свой вариант"
 
-        # Конвертируем фото в байты для отправки
+        # Конвертируем фото в base64
         buffered = io.BytesIO()
         photo.save(buffered, format="JPEG")
-        image_bytes = buffered.getvalue()
+        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        # Запрос к Cloudflare Workers AI (модель Stable Diffusion img2img)
+        # Формируем JSON-запрос
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img"
-        headers = {"Authorization": f"Bearer {api_token}"}
+        headers = {
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "prompt": prompt_text,
+            "image_b64": img_b64,
+            "num_steps": 20  # Количество шагов генерации (можно менять)
+        }
         
-        # Отправляем multipart/form-data с картинкой и промптом
-        files = {"image": ("input.jpg", image_bytes, "image/jpeg")}
-        data = {"prompt": prompt_text}
-        
-        response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+        response = requests.post(url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
 
         # Cloudflare возвращает бинарные данные изображения
         result_image = Image.open(io.BytesIO(response.content))
         return result_image, "✅ Готово! Ваша новая прическа (Cloudflare)."
 
+    except requests.exceptions.HTTPError as http_err:
+        # Показываем детали ошибки от Cloudflare
+        error_detail = http_err.response.text if http_err.response is not None else str(http_err)
+        return None, f"❌ Ошибка Cloudflare: {error_detail}"
     except Exception as e:
-        return None, f"❌ Ошибка API Cloudflare: {str(e)}"
-
+        return None, f"❌ Ошибка API: {str(e)}"
+        
 with gr.Blocks(title="AI Подбор Прически") as demo:
     gr.Markdown("# 💇‍♀️ AI Подбор Прически (Cloudflare Workers AI)")
     gr.Markdown("Загрузите фото и выберите желаемый образ. Вы можете выбрать готовый стиль или написать свой вариант на русском языке.")
