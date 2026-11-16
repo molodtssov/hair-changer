@@ -56,7 +56,7 @@ def change_hair(photo, selected_style, custom_style):
 
         # ИСПОЛЬЗУЕМ ПРАВИЛЬНОЕ ИМЯ МОДЕЛИ И УКАЗЫВАЕМ, ЧТО НУЖНА КАРТИНКА
         response = client.models.generate_content(
-            model="gemini-2.0-flash-preview-image-generation",
+            model="gemini-2.5-flash-image",
             contents=[prompt_text, photo],
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"]
