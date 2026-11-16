@@ -3,6 +3,7 @@ import os
 import requests
 from PIL import Image
 import io
+import base64
 
 HAIRSTYLES = {
     "Боб-каре (Короткое)": "a classic short bob haircut with straight bangs, sleek and shiny",
