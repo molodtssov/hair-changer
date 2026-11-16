@@ -38,30 +38,26 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
         if not account_id or not api_token:
             return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
 
-        # Конвертируем фото пользователя
         buffered = io.BytesIO()
         photo.save(buffered, format="JPEG")
         image_bytes = buffered.getvalue()
         
-        # Формируем файлы для отправки
         files = {
             "input_image_0": ("person.jpg", image_bytes, "image/jpeg")
         }
 
-        # Проверяем, загрузил ли пользователь референс прически
         if ref_photo is not None:
-            # Если загрузил, отправляем второе фото и просим взять прическу с него
             buffered_ref = io.BytesIO()
             ref_photo.save(buffered_ref, format="JPEG")
             files["input_image_1"] = ("style.jpg", buffered_ref.getvalue(), "image/jpeg")
             
+            # Добавили "Fully clothed, safe for work" для успокоения фильтра
             prompt_text = (
                 "Change the hairstyle of the person in the first image to match the hairstyle in the second image. "
-                "Keep the face, skin tone, expression, clothes, pose, background and lighting from the first image exactly the same. "
-                "Realistic photo, natural hair texture."
+                "Keep the face, clothes, pose, and background from the first image exactly the same. "
+                "Fully clothed, safe for work. Realistic photo, natural hair texture."
             )
         else:
-            # Если референса нет, используем текстовое описание
             if custom_style and custom_style.strip():
                 prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_style)
             elif selected_style:
@@ -81,12 +77,16 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
             return None, f"❌ Ошибка Cloudflare ({response.status_code}): {response.text}"
 
         response_json = response.json()
+        
+        # Проверяем на ошибку фильтра безопасности (код 3030)
         if not response_json.get("success"):
-            return None, f"❌ Ошибка Cloudflare: {response_json.get('errors')}"
+            errors = response_json.get("errors", [])
+            if errors and errors[0].get("code") == 3030:
+                return None, "⚠️ Фильтр безопасности отклонил результат. Попробуйте загрузить другое фото-референс или выбрать прическу из списка."
+            return None, f"❌ Ошибка Cloudflare: {errors}"
             
         image_result = response_json["result"]["image"]
         
-        # Обработка результата (ссылка или base64)
         if image_result.startswith("http"):
             img_response = requests.get(image_result, timeout=30)
             result_image = Image.open(io.BytesIO(img_response.content))
