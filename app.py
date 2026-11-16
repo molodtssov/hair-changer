@@ -33,15 +33,14 @@ def change_hair(photo, selected_style, custom_style):
         return None, "❌ Ошибка: Загрузите фото"
     
     try:
-        # Берем ключ из переменных окружения сервера (Render)
+        from google.genai import types
+        
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             return None, "❌ Ошибка конфигурации сервера: API-ключ не найден"
         
-        # ВАШ URL ПРОКСИ ИЗ CLOUDFLARE
         proxy_url = "https://gemini-proxy.vv-molodec.workers.dev"
         
-        # Правильная передача базового URL для прокси
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(base_url=proxy_url)
@@ -55,9 +54,13 @@ def change_hair(photo, selected_style, custom_style):
         else:
             return None, "❌ Ошибка: Выберите прическу или напишите свой вариант"
 
+        # ИСПОЛЬЗУЕМ ПРАВИЛЬНОЕ ИМЯ МОДЕЛИ И УКАЗЫВАЕМ, ЧТО НУЖНА КАРТИНКА
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
-            contents=[prompt_text, photo]
+            model="gemini-2.0-flash-preview-image-generation",
+            contents=[prompt_text, photo],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            )
         )
         
         for part in response.candidates[0].content.parts:
