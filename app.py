@@ -4,6 +4,7 @@ import requests
 from PIL import Image
 import io
 import base64
+import time
 
 # ==========================================
 # 1. СЛОВАРЬ ПРИЧЕСОК (Русский -> Английский)
@@ -55,8 +56,11 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
             ref_bytes = resize_image(ref_photo)
             files["input_image_1"] = ("style.jpg", ref_bytes, "image/jpeg")
             
+            # Жесткий промпт, чтобы игнорировать очки и татуировки с референса
             prompt_text = (
-                "Change the hairstyle of the person in the first image to match the hairstyle in the second image. "
+                "Take ONLY the hairstyle texture and shape from the second image. "
+                "IGNORE all accessories, sunglasses, tattoos, clothes, and background from the second image. "
+                "Apply this hairstyle to the person in the first image. "
                 "Keep the face, clothes, pose, and background from the first image exactly the same. "
                 "Fully clothed, safe for work. Realistic photo, natural hair texture."
             )
@@ -73,7 +77,7 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
         headers = {"Authorization": f"Bearer {api_token}"}
         data = {"prompt": prompt_text}
 
-        # --- ДОБАВЛЯЕМ 3 ПОПЫТКИ ПРИ ОШИБКЕ 3043 ---
+        # --- 3 ПОПЫТКИ ПРИ ОШИБКЕ 500/3043 ---
         last_error = None
         for attempt in range(3):
             response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
@@ -90,17 +94,25 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
                             image_result = image_result.split(",")[1]
                         return Image.open(io.BytesIO(base64.b64decode(image_result))), "✅ Готово! Ваша новая прическа."
             
-            # Если ошибка 3043 (временный сбой) — пробуем еще раз
+            # Если ошибка 500 (временный сбой) — пробуем еще раз
             if response.status_code == 500:
                 last_error = response.text
-                time.sleep(2) # Пауза перед повтором
+                time.sleep(2) 
                 continue
             else:
-                # Если ошибка не 500 (например, 400 или 3030) — сразу показываем пользователю
+                # Если ошибка не 500 (например, 400 или фильтр 3030) — сразу показываем пользователю
                 break
 
-        # Если все попытки провалились
-        return None, f"⚠️ Сервер Cloudflare временно перегружен (ошибка 3043). Пожалуйста, нажмите «Сгенерировать» еще раз через несколько секунд. Детали: {last_error}"
+        # Обработка специфических ошибок
+        try:
+            err_json = response.json()
+            errors = err_json.get("errors", [])
+            if errors and errors[0].get("code") == 3030:
+                return None, "⚠️ Фильтр безопасности отклонил результат. Попробуйте другое фото или выберите стиль из списка."
+        except:
+            pass
+
+        return None, f"⚠️ Сервер Cloudflare временно перегружен. Нажмите «Сгенерировать» еще раз через пару секунд. Детали: {last_error}"
 
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
