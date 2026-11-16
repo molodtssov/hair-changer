@@ -7,15 +7,18 @@ import base64
 import time
 
 # ==========================================
-# 1. КАТАЛОГ ПРИЧЕСОК (Визуальная галерея)
+# 1. СПИСОК ПРИЧЕСОК (Текстовый выбор)
 # ==========================================
-# Стабильные картинки с Pexels (можно заменить на свои)
-HAIRSTYLE_GALLERY = [
-    ("Боб-каре", "https://images.pexels.com/photos/3993449/pexels-photo-3993449.jpeg?auto=compress&cs=tinysrgb&w=600", "a classic short bob haircut with straight bangs, sleek and shiny"),
-    ("Кудри", "https://images.pexels.com/photos/3993398/pexels-photo-3993398.jpeg?auto=compress&cs=tinysrgb&w=600", "natural curly hair, defined and bouncy curls"),
-    ("Блонд", "https://images.pexels.com/photos/3993467/pexels-photo-3993467.jpeg?auto=compress&cs=tinysrgb&w=600", "platinum blonde bleached hair, icy tone"),
-    ("Андеркат", "https://images.pexels.com/photos/1319460/pexels-photo-1319460.jpeg?auto=compress&cs=tinysrgb&w=600", "a cool haircut with shaved sides and long hair on top (undercut)")
-]
+HAIRSTYLES = {
+    "Боб-каре (Короткое)": "a classic short bob haircut with straight bangs, sleek and shiny",
+    "Длинные волны": "long flowing wavy hair, voluminous and romantic style",
+    "Пикси (Очень короткая)": "a trendy pixie cut, very short, textured and edgy",
+    "Короткая стрижка (Кроп)": "a short textured crop haircut, modern and masculine style",
+    "Стрижка с выбритыми висками": "a cool haircut with shaved sides and long hair on top (undercut)",
+    "Кудри": "natural curly hair, defined and bouncy curls",
+    "Красный цвет": "vibrant red hair color, dyed and glossy",
+    "Блонд (Обесцвечивание)": "platinum blonde bleached hair, icy tone"
+}
 
 SYSTEM_PROMPT_TEXT = """You are an expert photo editor. Generate an image based on the provided photo. 
 Change ONLY the hairstyle. Keep the face, skin tone, expression, clothes, pose, background and lighting exactly the same. 
@@ -23,9 +26,9 @@ The new hairstyle should be: {hairstyle}.
 Realistic photo, natural skin and hair texture, 3:4 portrait."""
 
 # ==========================================
-# 2. ОБЩАЯ ЛОГИКА ГЕНЕРАЦИИ
+# 2. ЛОГИКА ГЕНЕРАЦИИ
 # ==========================================
-def process_generation(photo, prompt_text, style_name_display):
+def change_hair(photo, selected_style, custom_style):
     if not photo:
         return None, "❌ Ошибка: Загрузите ваше фото"
     
@@ -34,8 +37,9 @@ def process_generation(photo, prompt_text, style_name_display):
         api_token = os.getenv("CF_API_TOKEN")
         
         if not account_id or not api_token:
-            return None, "❌ Ошибка конфигурации сервера"
+            return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
 
+        # Сжимаем фото (требование Cloudflare)
         def resize_image(img):
             img.thumbnail((512, 512), Image.Resampling.LANCZOS)
             buffered = io.BytesIO()
@@ -44,11 +48,24 @@ def process_generation(photo, prompt_text, style_name_display):
 
         image_bytes = resize_image(photo)
         files = {"input_image_0": ("person.jpg", image_bytes, "image/jpeg")}
+        
+        # Если написан свой текст — используем его, иначе — из выпадающего списка
+        if custom_style and custom_style.strip():
+            prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_style)
+            display_name = "Ваш текстовый запрос"
+        elif selected_style:
+            eng_prompt = HAIRSTYLES.get(selected_style, "a modern haircut")
+            prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=eng_prompt)
+            display_name = selected_style
+        else:
+            return None, "❌ Ошибка: Выберите прическу из списка или напишите свой вариант"
+
         data = {"prompt": prompt_text}
 
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
         headers = {"Authorization": f"Bearer {api_token}"}
 
+        # 3 попытки при временных сбоях (ошибка 500)
         last_error = None
         for attempt in range(3):
             response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
@@ -59,11 +76,11 @@ def process_generation(photo, prompt_text, style_name_display):
                     image_result = response_json["result"]["image"]
                     if image_result.startswith("http"):
                         img_response = requests.get(image_result, timeout=30)
-                        return Image.open(io.BytesIO(img_response.content)), f"✅ Готово! {style_name_display}"
+                        return Image.open(io.BytesIO(img_response.content)), f"✅ Готово! {display_name}"
                     else:
                         if image_result.startswith("data:image"):
                             image_result = image_result.split(",")[1]
-                        return Image.open(io.BytesIO(base64.b64decode(image_result))), f"✅ Готово! {style_name_display}"
+                        return Image.open(io.BytesIO(base64.b64decode(image_result))), f"✅ Готово! {display_name}"
             
             if response.status_code == 500:
                 last_error = response.text
@@ -72,65 +89,51 @@ def process_generation(photo, prompt_text, style_name_display):
             else:
                 break
 
-        return None, "⚠️ Сервер Cloudflare перегружен. Нажмите еще раз."
+        # Обработка специфических ошибок
+        try:
+            err_json = response.json()
+            errors = err_json.get("errors", [])
+            if errors and errors[0].get("code") == 3030:
+                return None, "⚠️ Фильтр безопасности отклонил результат. Попробуйте другое фото или другой стиль."
+        except:
+            pass
+
+        return None, f"⚠️ Сервер Cloudflare временно перегружен. Нажмите «Сгенерировать» еще раз. Детали: {last_error}"
 
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
 
-# --- Функции-обертки ---
-def process_from_gallery(photo, style_name):
-    if not style_name: return None, "Выберите прическу"
-    eng_prompt = next((item[2] for item in HAIRSTYLE_GALLERY if item[0] == style_name), "a modern haircut")
-    prompt = SYSTEM_PROMPT_TEXT.format(hairstyle=eng_prompt)
-    return process_generation(photo, prompt, f"Прическа: {style_name}")
-
-def process_from_text(photo, custom_text):
-    if not custom_text: return None, "Введите описание прически"
-    prompt = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_text)
-    return process_generation(photo, prompt, "Ваш текстовый запрос")
-
 # ==========================================
-# 3. ИНТЕРФЕЙС GRADIO
+# 3. ИНТЕРФЕЙС GRADIO (Простой и надежный)
 # ==========================================
 with gr.Blocks(title="AI Подбор Прически") as demo:
     gr.Markdown("# 💇‍♀️ AI Подбор Прически")
+    gr.Markdown("Загрузите ваше фото и выберите готовый стиль из списка **ИЛИ** напишите свое пожелание словами.")
     
     with gr.Row():
-        with gr.Column(scale=1):
+        with gr.Column():
             photo_input = gr.Image(type="pil", label="1. Загрузите ваше фото")
             
-        with gr.Column(scale=1):
-            with gr.Tabs():
-                with gr.Tab("🎨 Каталог"):
-                    gallery_data = [[item[1], item[0]] for item in HAIRSTYLE_GALLERY]
-                    style_gallery = gr.Gallery(
-                        value=gallery_data, label="Кликните на прическу, чтобы примерить", 
-                        allow_preview=False, columns=2, rows=2, height=300
-                    )
-                    selected_gallery_style = gr.Textbox(visible=False)
-                    
-                with gr.Tab("✍️ Свой текст"):
-                    custom_input = gr.Textbox(label="Опишите прическу", placeholder="Например: короткая стрижка с синими кончиками")
-                    btn_text = gr.Button("✨ Сгенерировать по тексту", variant="primary")
-
-    with gr.Row():
-        output_image = gr.Image(label="Результат")
-        output_text = gr.Textbox(label="Статус")
-
-    def on_gallery_select(evt: gr.SelectData):
-        return evt.value[1] 
-
-    style_gallery.select(on_gallery_select, None, selected_gallery_style)
-    
-    selected_gallery_style.change(
-        fn=process_from_gallery, 
-        inputs=[photo_input, selected_gallery_style], 
-        outputs=[output_image, output_text]
-    )
-    
-    btn_text.click(
-        fn=process_from_text,
-        inputs=[photo_input, custom_input],
+            style_dropdown = gr.Dropdown(
+                choices=list(HAIRSTYLES.keys()), 
+                label="2. Выберите готовый стиль", 
+                value="Боб-каре (Короткое)"
+            )
+            
+            custom_input = gr.Textbox(
+                label="ИЛИ опишите свой вариант (на русском)", 
+                placeholder="Например: короткая стрижка с челкой и синим цветом"
+            )
+            
+            btn = gr.Button("✨ Сгенерировать", variant="primary")
+            
+        with gr.Column():
+            output_image = gr.Image(label="Результат")
+            output_text = gr.Textbox(label="Статус")
+            
+    btn.click(
+        fn=change_hair, 
+        inputs=[photo_input, style_dropdown, custom_input], 
         outputs=[output_image, output_text]
     )
 
