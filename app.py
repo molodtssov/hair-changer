@@ -7,7 +7,7 @@ import base64
 import time
 
 # ==========================================
-# 1. СПИСОК ПРИЧЕСОК (Текстовый выбор)
+# 1. СПИСОК ПРИЧЕСОК
 # ==========================================
 HAIRSTYLES = {
     "Боб-каре (Короткое)": "a classic short bob haircut with straight bangs, sleek and shiny",
@@ -37,9 +37,8 @@ def change_hair(photo, selected_style, custom_style):
         api_token = os.getenv("CF_API_TOKEN")
         
         if not account_id or not api_token:
-            return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
+            return None, "❌ Ошибка конфигурации сервера"
 
-        # Сжимаем фото (требование Cloudflare)
         def resize_image(img):
             img.thumbnail((512, 512), Image.Resampling.LANCZOS)
             buffered = io.BytesIO()
@@ -49,7 +48,6 @@ def change_hair(photo, selected_style, custom_style):
         image_bytes = resize_image(photo)
         files = {"input_image_0": ("person.jpg", image_bytes, "image/jpeg")}
         
-        # Если написан свой текст — используем его, иначе — из выпадающего списка
         if custom_style and custom_style.strip():
             prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=custom_style)
             display_name = "Ваш текстовый запрос"
@@ -58,14 +56,12 @@ def change_hair(photo, selected_style, custom_style):
             prompt_text = SYSTEM_PROMPT_TEXT.format(hairstyle=eng_prompt)
             display_name = selected_style
         else:
-            return None, "❌ Ошибка: Выберите прическу из списка или напишите свой вариант"
+            return None, "❌ Ошибка: Выберите прическу или напишите свой вариант"
 
         data = {"prompt": prompt_text}
-
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
         headers = {"Authorization": f"Bearer {api_token}"}
 
-        # 3 попытки при временных сбоях (ошибка 500)
         last_error = None
         for attempt in range(3):
             response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
@@ -89,47 +85,83 @@ def change_hair(photo, selected_style, custom_style):
             else:
                 break
 
-        # Обработка специфических ошибок
-        try:
-            err_json = response.json()
-            errors = err_json.get("errors", [])
-            if errors and errors[0].get("code") == 3030:
-                return None, "⚠️ Фильтр безопасности отклонил результат. Попробуйте другое фото или другой стиль."
-        except:
-            pass
-
-        return None, f"⚠️ Сервер Cloudflare временно перегружен. Нажмите «Сгенерировать» еще раз. Детали: {last_error}"
+        return None, f"⚠️ Сервер перегружен. Попробуйте еще раз."
 
     except Exception as e:
-        return None, f"❌ Ошибка API: {str(e)}"
+        return None, f"❌ Ошибка: {str(e)}"
+
 
 # ==========================================
-# 3. ИНТЕРФЕЙС GRADIO (Простой и надежный)
+# 3. ДИЗАЙН И ИНТЕРФЕЙС
 # ==========================================
-with gr.Blocks(title="AI Подбор Прически") as demo:
-    gr.Markdown("# 💇‍♀️ AI Подбор Прически")
-    gr.Markdown("Загрузите ваше фото и выберите готовый стиль из списка **ИЛИ** напишите свое пожелание словами.")
+
+# Кастомный CSS для улучшения внешнего вида (скругления, тени, отступы)
+custom_css = """
+.gradio-container {
+    max-width: 1000px !important;
+    margin: 0 auto !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+#header-text {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #1a1a1a;
+}
+#header-text h1 {
+    font-weight: 800;
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+#header-text p {
+    color: #666;
+    font-size: 1.1rem;
+}
+"""
+
+# Применяем светлую тему (Soft)
+theme = gr.themes.Soft(
+    primary_hue="rose",
+    secondary_hue="teal",
+    neutral_hue="slate",
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"]
+)
+
+with gr.Blocks(title="AI Подбор Прически", theme=theme, css=custom_css) as demo:
+    
+    # Красивый заголовок
+    with gr.Column(elem_id="header-text"):
+        gr.HTML("""
+            <h1>💇‍♀️ AI Стилист</h1>
+            <p>Загрузите фото и примерьте новый образ за 10 секунд</p>
+        """)
     
     with gr.Row():
-        with gr.Column():
-            photo_input = gr.Image(type="pil", label="1. Загрузите ваше фото")
+        # Левая колонка - ввод
+        with gr.Column(scale=1):
+            photo_input = gr.Image(type="pil", label="Ваше фото", elem_classes="photo-box")
+            
+            gr.Markdown("### Выберите образ")
             
             style_dropdown = gr.Dropdown(
                 choices=list(HAIRSTYLES.keys()), 
-                label="2. Выберите готовый стиль", 
+                label="Готовые стили", 
                 value="Боб-каре (Короткое)"
             )
             
             custom_input = gr.Textbox(
-                label="ИЛИ опишите свой вариант (на русском)", 
-                placeholder="Например: короткая стрижка с челкой и синим цветом"
+                label="Или опишите свой вариант", 
+                placeholder="Например: пепельный блонд с челкой"
             )
             
-            btn = gr.Button("✨ Сгенерировать", variant="primary")
+            btn = gr.Button("✨ Сгенерировать", variant="primary", size="lg")
             
-        with gr.Column():
-            output_image = gr.Image(label="Результат")
-            output_text = gr.Textbox(label="Статус")
+        # Правая колонка - вывод
+        with gr.Column(scale=1):
+            output_image = gr.Image(label="Результат", interactive=False)
+            output_text = gr.Textbox(label="Статус", interactive=False)
             
     btn.click(
         fn=change_hair, 
