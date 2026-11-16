@@ -38,20 +38,23 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
         if not account_id or not api_token:
             return None, "❌ Ошибка конфигурации сервера: добавьте CF_ACCOUNT_ID и CF_API_TOKEN в Render"
 
-        buffered = io.BytesIO()
-        photo.save(buffered, format="JPEG")
-        image_bytes = buffered.getvalue()
+        # --- УМЕНЬШАЕМ ФОТО ДО 512x512 (требование Cloudflare) ---
+        def resize_image(img):
+            img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG", quality=95)
+            return buffered.getvalue()
+
+        image_bytes = resize_image(photo)
         
         files = {
             "input_image_0": ("person.jpg", image_bytes, "image/jpeg")
         }
 
         if ref_photo is not None:
-            buffered_ref = io.BytesIO()
-            ref_photo.save(buffered_ref, format="JPEG")
-            files["input_image_1"] = ("style.jpg", buffered_ref.getvalue(), "image/jpeg")
+            ref_bytes = resize_image(ref_photo)
+            files["input_image_1"] = ("style.jpg", ref_bytes, "image/jpeg")
             
-            # Добавили "Fully clothed, safe for work" для успокоения фильтра
             prompt_text = (
                 "Change the hairstyle of the person in the first image to match the hairstyle in the second image. "
                 "Keep the face, clothes, pose, and background from the first image exactly the same. "
@@ -68,35 +71,36 @@ def change_hair(photo, ref_photo, selected_style, custom_style):
 
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-2-klein-9b"
         headers = {"Authorization": f"Bearer {api_token}"}
-        
         data = {"prompt": prompt_text}
-        
-        response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
-        
-        if response.status_code != 200:
-            return None, f"❌ Ошибка Cloudflare ({response.status_code}): {response.text}"
 
-        response_json = response.json()
-        
-        # Проверяем на ошибку фильтра безопасности (код 3030)
-        if not response_json.get("success"):
-            errors = response_json.get("errors", [])
-            if errors and errors[0].get("code") == 3030:
-                return None, "⚠️ Фильтр безопасности отклонил результат. Попробуйте загрузить другое фото-референс или выбрать прическу из списка."
-            return None, f"❌ Ошибка Cloudflare: {errors}"
+        # --- ДОБАВЛЯЕМ 3 ПОПЫТКИ ПРИ ОШИБКЕ 3043 ---
+        last_error = None
+        for attempt in range(3):
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
             
-        image_result = response_json["result"]["image"]
-        
-        if image_result.startswith("http"):
-            img_response = requests.get(image_result, timeout=30)
-            result_image = Image.open(io.BytesIO(img_response.content))
-        else:
-            if image_result.startswith("data:image"):
-                image_result = image_result.split(",")[1]
-            image_bytes = base64.b64decode(image_result)
-            result_image = Image.open(io.BytesIO(image_bytes))
-        
-        return result_image, "✅ Готово! Ваша новая прическа."
+            if response.status_code == 200:
+                response_json = response.json()
+                if response_json.get("success"):
+                    image_result = response_json["result"]["image"]
+                    if image_result.startswith("http"):
+                        img_response = requests.get(image_result, timeout=30)
+                        return Image.open(io.BytesIO(img_response.content)), "✅ Готово! Ваша новая прическа."
+                    else:
+                        if image_result.startswith("data:image"):
+                            image_result = image_result.split(",")[1]
+                        return Image.open(io.BytesIO(base64.b64decode(image_result))), "✅ Готово! Ваша новая прическа."
+            
+            # Если ошибка 3043 (временный сбой) — пробуем еще раз
+            if response.status_code == 500:
+                last_error = response.text
+                time.sleep(2) # Пауза перед повтором
+                continue
+            else:
+                # Если ошибка не 500 (например, 400 или 3030) — сразу показываем пользователю
+                break
+
+        # Если все попытки провалились
+        return None, f"⚠️ Сервер Cloudflare временно перегружен (ошибка 3043). Пожалуйста, нажмите «Сгенерировать» еще раз через несколько секунд. Детали: {last_error}"
 
     except Exception as e:
         return None, f"❌ Ошибка API: {str(e)}"
