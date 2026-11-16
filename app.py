@@ -35,13 +35,15 @@ def change_hair(api_key, photo, selected_style, custom_style):
         return None, "❌ Ошибка: Загрузите фото"
     
     try:
-        # ВСТАВЬТЕ ВАШ URL ПРОКСИ ИЗ CLOUDFLARE!
-        proxy_url = "https://https://gemini-proxy.vv-molodec.workers.dev" 
+        from google.genai import types
         
-        # Создаем клиента через прокси
+        # ВАШ URL ПРОКСИ ИЗ CLOUDFLARE
+        proxy_url = "https://gemini-proxy.vv-molodec.workers.dev"
+        
+        # Правильная передача базового URL для прокси в новом SDK
         client = genai.Client(
             api_key=api_key,
-            api_endpoint=f"{proxy_url}/v1beta"
+            http_options=types.HttpOptions(base_url=proxy_url)
         )
         
         if custom_style and custom_style.strip():
